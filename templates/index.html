@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kazyol O'yini</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 { color: #667eea; text-align: center; margin-bottom: 30px; font-size: 2em; }
+        .screen { display: none; }
+        .screen.active { display: block; }
+        input, button {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: scale(1.05); }
+        button:active { transform: scale(0.95); }
+        .game-info { background: #f8f9fa; padding: 15px; border-radius: 10px; margin: 15px 0; }
+        .players-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 0; }
+        .player {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .player.team1 { border-left: 4px solid #28a745; }
+        .player.team2 { border-left: 4px solid #dc3545; }
+        .player.active { background: #ffc107; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .cards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 20px 0; }
+        .card {
+            width: 70px;
+            height: 100px;
+            background: white;
+            border: 3px solid #333;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .card:hover { transform: translateY(-10px); box-shadow: 0 8px 16px rgba(0,0,0,0.3); }
+        .card.red { color: #dc3545; }
+        .card.black { color: #333; }
+        .trump-card {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            background: #fff3cd;
+            border-radius: 10px;
+            border: 2px solid #ffc107;
+        }
+        .trump-card h3 { color: #856404; margin-bottom: 10px; }
+        .scores { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0; }
+        .score-box { padding: 20px; border-radius: 10px; text-align: center; }
+        .score-box.team1 { background: #d4edda; border: 2px solid #28a745; }
+        .score-box.team2 { background: #f8d7da; border: 2px solid #dc3545; }
+        .score-box h3 { margin-bottom: 10px; font-size: 1.2em; }
+        .score-box .points { font-size: 2em; font-weight: bold; }
+        .current-trick { background: #e9ecef; padding: 20px; border-radius: 10px; margin: 20px 0; min-height: 150px; }
+        .trick-cards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+        .game-id {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            margin: 15px 0;
+            border: 2px dashed #ffc107;
+        }
+        .game-id code { font-size: 1.5em; font-weight: bold; color: #856404; }
+        .error { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 10px; margin: 15px 0; border: 2px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🃏 Kazyol O'yini</h1>
+        <div id="menuScreen" class="screen active">
+            <input type="text" id="playerName" placeholder="Ismingizni kiriting" maxlength="20">
+            <button onclick="createGame()">Yangi O'yin Yaratish</button>
+            <input type="text" id="gameIdInput" placeholder="O'yin ID si" maxlength="8">
+            <button onclick="joinGame()">O'yinga Qo'shilish</button>
+        </div>
+        <div id="waitingScreen" class="screen">
+            <div class="game-id">
+                <p>O'yin ID:</p>
+                <code id="gameIdDisplay"></code>
+                <p style="margin-top: 10px; color: #856404;">Bu ID ni do'stlaringizga yuboring!</p>
+            </div>
+            <div class="game-info">
+                <h3>O'yinchilar (<span id="playerCount">0</span>/6)</h3>
+                <div id="playersList" class="players-list"></div>
+            </div>
+            <button id="startGameBtn" onclick="startGame()" style="display: none; margin-top: 20px;">
+                🚀 O'yinni Boshlash
+            </button>
+            <p id="waitingMessage" style="text-align: center; color: #666; margin-top: 20px;">
+                Kamida 2 kishi kerak (juft son: 2, 4 yoki 6)
+            </p>
+        </div>
+        <div id="gameScreen" class="screen">
+            <div class="trump-card">
+                <h3>🎴 Kozir:</h3>
+                <div id="trumpDisplay" style="font-size: 2em;"></div>
+            </div>
+            <div class="scores">
+                <div class="score-box team1">
+                    <h3>Jamoa 1 🟢</h3>
+                    <div class="points" id="team1Score">0</div>
+                    <p>Raund: <span id="team1Round">0</span></p>
+                </div>
+                <div class="score-box team2">
+                    <h3>Jamoa 2 🔴</h3>
+                    <div class="points" id="team2Score">0</div>
+                    <p>Raund: <span id="team2Round">0</span></p>
+                </div>
+            </div>
+            <div class="current-trick">
+                <h3 style="text-align: center; margin-bottom: 15px;">Hozirgi Trick:</h3>
+                <div id="trickCards" class="trick-cards"></div>
+            </div>
+            <div class="game-info">
+                <h3 style="text-align: center;">Sizning Kartalaringiz:</h3>
+                <div id="myCards" class="cards"></div>
+            </div>
+            <div id="errorMessage" class="error" style="display: none;"></div>
+        </div>
+    </div>
+    <script>
+        const socket = io();
+        let currentGameId = null;
+        let myCards = [];
+        let myTeam = null;
+        let isCreator = false;
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+        function createGame() {
+            const name = document.getElementById('playerName').value.trim();
+            if (!name) { alert("Iltimos ismingizni kiriting!"); return; }
+            socket.emit('create_game', { name });
+        }
+        function joinGame() {
+            const name = document.getElementById('playerName').value.trim();
+            const gameId = document.getElementById('gameIdInput').value.trim().toUpperCase();
+            if (!name || !gameId) { alert("Iltimos ism va o'yin ID sini kiriting!"); return; }
+            socket.emit('join_game', { name, game_id: gameId });
+        }
+        function startGame() {
+            if (!currentGameId) return;
+            socket.emit('start_game', { game_id: currentGameId });
+        }
+        socket.on('game_created', (data) => {
+            currentGameId = data.game_id;
+            isCreator = data.is_creator;
+            document.getElementById('gameIdDisplay').textContent = data.game_id;
+            showScreen('waitingScreen');
+            updateStartButton();
+        });
+        socket.on('player_joined', (data) => {
+            currentGameId = currentGameId || Object.keys(data)[0];
+            myTeam = data.your_team;
+            if (data.is_creator !== undefined) { isCreator = data.is_creator; }
+            updatePlayersList(data.players);
+            updateStartButton();
+        });
+        function updateStartButton() {
+            const btn = document.getElementById('startGameBtn');
+            const msg = document.getElementById('waitingMessage');
+            const count = document.querySelectorAll('.player').length;
+            if (isCreator && count >= 2 && count % 2 === 0) {
+                btn.style.display = 'block';
+                msg.textContent = count + ' kishi tayyor! O\'yinni boshlang!';
+            } else if (isCreator && count >= 2) {
+                btn.style.display = 'none';
+                msg.textContent = 'Juft son o\'yinchi kerak (hozir: ' + count + ')';
+            } else if (isCreator) {
+                btn.style.display = 'none';
+                msg.textContent = 'Kamida 2 kishi kerak...';
+            } else {
+                btn.style.display = 'none';
+                msg.textContent = 'Yaratuvchi o\'yinni boshlashini kutib turing...';
+            }
+        }
+        function updatePlayersList(players) {
+            const list = document.getElementById('playersList');
+            list.innerHTML = '';
+            players.forEach((player, index) => {
+                const div = document.createElement('div');
+                div.className = 'player ' + player.team;
+                div.textContent = player.name;
+                list.appendChild(div);
+            });
+            document.getElementById('playerCount').textContent = players.length;
+            updateStartButton();
+        }
+        socket.on('game_started', (data) => {
+            myCards = data.your_cards;
+            displayTrump(data.trump);
+            displayMyCards();
+            showScreen('gameScreen');
+        });
+        function displayTrump(trump) {
+            const display = document.getElementById('trumpDisplay');
+            const color = (trump.suit === '♥' || trump.suit === '♦') ? 'red' : 'black';
+            display.innerHTML = '<span style="color: ' + (color === 'red' ? '#dc3545' : '#333') + '">' + trump.rank + trump.suit + '</span>';
+        }
+        function displayMyCards() {
+            const container = document.getElementById('myCards');
+            container.innerHTML = '';
+            myCards.forEach(card => {
+                const cardDiv = document.createElement('div');
+                const color = (card.suit === '♥' || card.suit === '♦') ? 'red' : 'black';
+                cardDiv.className = 'card ' + color;
+                cardDiv.innerHTML = '<div>' + card.rank + '</div><div>' + card.suit + '</div>';
+                cardDiv.onclick = () => playCard(card);
+                container.appendChild(cardDiv);
+            });
+        }
+        function playCard(card) {
+            socket.emit('play_card', { game_id: currentGameId, card: card });
+        }
+        socket.on('game_update', (data) => {
+            displayTrick(data.current_trick);
+            updateScores(data.round_scores, data.tricks_won);
+        });
+        socket.on('update_hand', (data) => {
+            myCards = data.your_cards;
+            displayMyCards();
+        });
+        function displayTrick(trick) {
+            const container = document.getElementById('trickCards');
+            container.innerHTML = '';
+            trick.forEach(item => {
+                const card = item.card;
+                const cardDiv = document.createElement('div');
+                const color = (card.suit === '♥' || card.suit === '♦') ? 'red' : 'black';
+                cardDiv.className = 'card ' + color;
+                cardDiv.innerHTML = '<div>' + card.rank + '</div><div>' + card.suit + '</div>';
+                container.appendChild(cardDiv);
+            });
+        }
+        function updateScores(roundScores, tricksWon) {
+            document.getElementById('team1Round').textContent = roundScores.team1;
+            document.getElementById('team2Round').textContent = roundScores.team2;
+        }
+        socket.on('round_ended', (data) => {
+            document.getElementById('team1Score').textContent = data.total_scores.team1;
+            document.getElementById('team2Score').textContent = data.total_scores.team2;
+            setTimeout(() => {
+                alert('Raund tugadi!\nJamoa 1: ' + data.round_scores.team1 + '\nJamoa 2: ' + data.round_scores.team2);
+            }, 500);
+        });
+        socket.on('error', (data) => {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = data.message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => { errorDiv.style.display = 'none'; }, 3000);
+        });
+    </script>
+</body>
+</html>
